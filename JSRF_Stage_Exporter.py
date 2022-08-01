@@ -3,7 +3,7 @@
 bl_info = {
     "name": "JSRF Stage Exporter",
     "author": "neodos",
-    "version": (1, 0, 0),
+    "version": (1, 0, 1),
     "blender": (3, 2, 0),
     "category": "Export",
     "location": "Scene properties",
@@ -11,6 +11,7 @@ bl_info = {
 }
 
 import bpy, os, shutil, importlib, sys, subprocess
+from mathutils import Vector
 from collections import defaultdict
 
 
@@ -173,9 +174,13 @@ def export_meshes(coll, coll_name):
                                                 keep_vertex_order=True,
                                                 group_by_object=True
                                              )
+            #  group_by_object=True, group_by_material = True
             
             bpy.ops.object.select_all(action='DESELECT')
             
+    # turn off Collision models visibility       
+    #if group.name == "Collision":
+        #bpy.data.collections[group.name_full].hide_viewport = True
         
 # export curves (grind paths)
 def export_curves(group):
@@ -206,16 +211,22 @@ def export_curves(group):
                     
                     # if object is a curve
                     if childObject.type == "CURVE":
-
+                        
                         for spline in childObject.data.splines:
-                            
+                            oMatrix = childObject.matrix_world
                             for point in spline.points:
+                                 # get world position of spline point (relative to curve object matrix)
+                                 pco = Vector(point.co[0:3])
+                                 pco = (oMatrix @ pco)
                                  # add (point and normal) to lines
-                                 lines.append(str(round(point.co.x * -1, 4)) + " " + str(round(point.co.y, 4)) + " " + str(round(point.co.z, 4)) + " 0 1 0")
+                                 lines.append(str(round(pco.x * -1, 4)) + " " + str(round(pco.z, 4)) + " " + str(round(pco.y * -1, 4)) + " 0 1 0")
                                 
-                    lines.append("end")      
+                    lines.append("end")
+        
+            # create GrindPaths directory if it doesn't exist
+            # os.makedirs(export_dir + "GrindPaths" + "\\", exist_ok=True)
 
-            # write grind paths - curves to text file
+            # write text file
             with open(export_dir + "\\grind_paths.txt", "w") as f:
                 for line in lines:
                     f.write(line + '\n')
@@ -508,10 +519,7 @@ def compile():
 def export_jsrf_stage():
 
     context = bpy.context
-    
-    if(bpy.context.active_object.mode != "OBJECT"):
-        bpy.ops.object.mode_set(mode="OBJECT")
-    
+    #bpy.ops.object.mode_set(mode="OBJECT")
     bpy.ops.object.select_all(action="DESELECT")
     
     coll_Stage = None
