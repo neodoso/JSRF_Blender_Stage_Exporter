@@ -3,14 +3,14 @@
 bl_info = {
     "name": "JSRF Stage Exporter",
     "author": "neodos",
-    "version": (1, 0, 1),
+    "version": (1, 0, 2),
     "blender": (3, 2, 0),
     "category": "Export",
     "location": "Scene properties",
     "description": "JSRF stage exporter."
 }
 
-import bpy, os, shutil, importlib, sys, subprocess
+import bpy, os, shutil, importlib, sys, subprocess, math
 from mathutils import Vector
 from collections import defaultdict
 
@@ -137,7 +137,7 @@ def unregister():
     bpy.utils.unregister_class(JSRF_Stage_Exporter_Panel)
     bpy.utils.unregister_class(Export_Stage)
     
- 
+
 #if __name__ == "__main__":
 #    register()
 
@@ -213,13 +213,11 @@ def export_curves(group):
                     if childObject.type == "CURVE":
                         
                         for spline in childObject.data.splines:
-                            oMatrix = childObject.matrix_world
+                            ppos = childObject.location
+                            
                             for point in spline.points:
-                                 # get world position of spline point (relative to curve object matrix)
-                                 pco = Vector(point.co[0:3])
-                                 pco = (oMatrix @ pco)
                                  # add (point and normal) to lines
-                                 lines.append(str(round(pco.x * -1, 4)) + " " + str(round(pco.z, 4)) + " " + str(round(pco.y * -1, 4)) + " 0 1 0")
+                                 lines.append(str(round((point.co.x + ppos.x) * -1, 4)) + " " + str(round(point.co.z + ppos.z, 4)) + " " + str(round((point.co.y + ppos.y) * -1, 4)) + " 0 1 0")
                                 
                     lines.append("end")
         
