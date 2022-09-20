@@ -3,7 +3,7 @@
 bl_info = {
     "name": "JSRF Stage Exporter",
     "author": "neodos",
-    "version": (1, 0, 2),
+    "version": (1, 0, 7),
     "blender": (3, 2, 0),
     "category": "Export",
     "location": "Scene properties",
@@ -57,7 +57,8 @@ class JSRF_Stage_Exporter_Panel(bpy.types.Panel):
         row.prop(context.scene, 'media_dir')
         row = layout.row()
         row.prop(context.scene, 'modtool_path')
-  
+        row = layout.row()
+        row.prop(context.scene, 'vis_as_coll')
 
 
 class Export_Stage(bpy.types.Operator):
@@ -76,10 +77,12 @@ class Export_Stage(bpy.types.Operator):
         global export_dir
         global media_dir
         global modtool_path
+        global vis_as_coll
         stage_num = bpy.context.scene.stage_id
         export_dir = os.path.realpath(bpy.path.abspath(bpy.context.scene.export_path)) + "\\"
         media_dir = os.path.realpath(bpy.path.abspath(bpy.context.scene.media_dir)) + "\\"
         modtool_path = os.path.realpath(bpy.path.abspath(bpy.context.scene.modtool_path))
+        vis_as_coll = bpy.context.scene.vis_as_coll
 
         global scene
         global ctx
@@ -126,6 +129,11 @@ def register():
           subtype = 'FILE_PATH'
       )
       
+    bpy.types.Scene.vis_as_coll = bpy.props.BoolProperty \
+      (
+          name = "Visual as Collision",
+      )
+      
     bpy.utils.register_class(JSRF_Stage_Exporter_Panel)
 
 
@@ -134,10 +142,11 @@ def unregister():
     del bpy.types.Scene.stage_id
     del bpy.types.Scene.media_dir
     del bpy.types.Scene.modtool_path
+    del bpy.types.Scene.vis_as_coll
     bpy.utils.unregister_class(JSRF_Stage_Exporter_Panel)
     bpy.utils.unregister_class(Export_Stage)
     
-
+ 
 #if __name__ == "__main__":
 #    register()
 
@@ -213,9 +222,9 @@ def export_curves(group):
                     if childObject.type == "CURVE":
                         
                         for spline in childObject.data.splines:
-                            ppos = childObject.location
-                            
+
                             for point in spline.points:
+                                 ppos = childObject.location
                                  # add (point and normal) to lines
                                  lines.append(str(round((point.co.x + ppos.x) * -1, 4)) + " " + str(round(point.co.z + ppos.z, 4)) + " " + str(round((point.co.y + ppos.y) * -1, 4)) + " 0 1 0")
                                 
@@ -282,6 +291,11 @@ def join_meshes_inCollection(parentCollection):
             #bpy.data.objects.remove(childObject, do_unlink=True)
             
     ctx = bpy.context.copy()
+    
+    # return if no meshes in collection
+    if len(meshes) == 0:
+        return
+    
     # one of the objects to join
     ctx['active_object'] = meshes[0]
     ctx['selected_editable_objects'] = meshes
@@ -364,8 +378,7 @@ def remove_JSRF_Stage_CollCopy(CollCopy):
   
     # if collection 'Visual.001' exists, remove it and nested objects
     try:
-        #CollCopy = bpy.data.collections.get(CollName)
-        
+
         # for VisCopy children
         for CollchildObj in CollCopy.children:
             
@@ -458,8 +471,7 @@ def merge_duplicate_materials_inMesh():
 
             # if matA and matB texture filepath are equal
             if get_mat_tex_filepath(matA.material) == get_mat_tex_filepath(matB.material):
-                  #print(matA.material.name + " " + str(mat_list.index(matA.material.name)) + " and " + matB.material.name + " " + str(mat_list.index(matB.material.name))  + " share the tame texture")
-                  
+       
                   # store material indices, for the original material and the duplicate material
                   source_mat_index = mats_list.index(matA.material.name)
                   duplicate_mat_index = mats_list.index(matB.material.name)
@@ -473,10 +485,9 @@ def merge_duplicate_materials_inMesh():
  
                   discarded_mat_name = matB.name
                   for obj in bpy.context.selected_editable_objects:
-                      # if matB.name is found in bpy.context.active_object.material_slots[]
+                      
                       if matB.name in [x.name for x in obj.material_slots]:
                           # set active material index to the index of "matB.name" index 
-                          #bpy.context.active_object.active_material_index = [x.material.name for x in bpy.context.active_object.material_slots].index(matB.name)
                           obj.active_material_index = [x.material.name for x in obj.material_slots].index(matB.name)
                           # remove material slot
                           bpy.ops.object.material_slot_remove({'object': obj})                  
@@ -499,7 +510,7 @@ def merge_duplicate_materials_inMesh():
             #bpy.context.object.active_material_index = [x.material.name for x in bpy.context.object.material_slots].index(s)
             # remove material slot
             #bpy.ops.object.material_slot_remove()
-    
+
 ##########################################################################################################################################################
 ## Run stage compiler   ##################################################################################################################################
 ##########################################################################################################################################################
@@ -507,7 +518,6 @@ def merge_duplicate_materials_inMesh():
 def compile():
     
     args = [modtool_path, "stage_compile", export_dir, media_dir, stage_num]
-    print(args)
     subprocess.call(args)
 
 ##########################################################################################################################################################
@@ -517,20 +527,31 @@ def compile():
 def export_jsrf_stage():
 
     context = bpy.context
-    #bpy.ops.object.mode_set(mode="OBJECT")
+    
+    # store active object and mode so we can restore it after exporting
+    active_obj = context.active_object
+    active_mode = bpy.ops.object.mode
+    
+    if active_mode == "EDIT":
+        bpy.ops.object.mode_set(mode="OBJECT")        
+        
     bpy.ops.object.select_all(action="DESELECT")
+    
+    
     
     coll_Stage = None
     coll_Visual = None
     coll_Collision = None
-    collGrindPaths = None
+    coll_GrindPaths = None
 
     # browse scene collections
     # check if JSRF Stage collections exist
     if len(bpy.data.collections) > 0:
         
         # delete export dir and it's contents
-        shutil.rmtree(export_dir, ignore_errors=True)
+        shutil.rmtree(export_dir + "\Visual", ignore_errors=True)
+        shutil.rmtree(export_dir + "\\Collision", ignore_errors=True)
+  
 
         for coll in bpy.data.collections:
                 # if collection is named Stage
@@ -539,21 +560,23 @@ def export_jsrf_stage():
                             
                     #for all child in coll
                     for collChild in coll.children:
-                                
+                       print(collChild.name)         
                        if collChild.name == "Visual":
+                           
+                           
                            coll_Visual = collChild
                            
                        if collChild.name == "Collision":
                             coll_Collision = collChild
                             
                        if collChild.name == "GrindPaths":
-                            collGrindPaths = collChild
-                            
+                            coll_GrindPaths = collChild
+  
                              
         if coll_Stage     == None : print("Error: could not find 'Stage' collection in outliner layers");      return
         if coll_Visual    == None : print("Error: could not find 'Visual' collection in outliner layers");     return
         if coll_Collision == None : print("Error: could not find 'Collision' collection in outliner layers");  return
-        if collGrindPaths == None : print("Error: could not find 'GrindPaths' collection in outliner layers"); return    
+        if coll_GrindPaths== None : print("Error: could not find 'GrindPaths' collection in outliner layers"); return    
                  
 
     # removes duplicate collections(and nested items) used for pre-processing meshes for export 
@@ -572,13 +595,30 @@ def export_jsrf_stage():
     #bpy.ops.object.mode_set(mode="OBJECT")
     bpy.ops.object.select_all(action="DESELECT")
 
+    # export collision meshes
+    if vis_as_coll == False:
+        CollisionDupeColl = duplicate_collection(coll_Collision)
+        process_Collection(CollisionDupeColl)
+        export_meshes(CollisionDupeColl, "Collision")
+        remove_JSRF_Stage_CollCopy(CollisionDupeColl) #'Collision.001'
+        
+    # export visual meshes as collision meshes    
+    elif vis_as_coll == True:
+        CollisionDupeColl = duplicate_collection(coll_Visual)
+        process_Collection(CollisionDupeColl)
+        export_meshes(CollisionDupeColl, "Collision")
+        remove_JSRF_Stage_CollCopy(CollisionDupeColl)
 
-    CollisionDupeColl = duplicate_collection(coll_Collision)
-    process_Collection(CollisionDupeColl)
-    export_meshes(CollisionDupeColl, "Collision")
-    remove_JSRF_Stage_CollCopy(CollisionDupeColl) #'Collision.001'
 
-
-    export_curves(collGrindPaths)
+    export_curves(coll_GrindPaths)
 
     compile()
+    
+    # restore selected object (from before exporting)
+    if active_obj != None:
+        active_obj.select_set(True)
+        bpy.context.view_layer.objects.active = active_obj
+    
+    # restore edit mode (if we were in edit mode before exporting)
+    if active_mode == "EDIT":
+        bpy.ops.object.mode_set(mode='EDIT')
